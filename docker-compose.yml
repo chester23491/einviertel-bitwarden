@@ -1,0 +1,69 @@
+version: "3"
+services:
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: always
+    environment:
+      - DOMAIN=https://bitwarden.getftp.ch # Your domain; vaultwarden needs to know it's https to work properly with attachments
+      - SIGNUPS_ALLOWED=false
+      - SMTP_HOST=smtp.sendgrid.net
+      - SMTP_PORT=587
+      - SMTP_SECURITY=starttls
+      - SMTP_USERNAME=apikey
+      - SMTP_AUTH_MECHANISM="Login"
+      - ORG_EVENTS_ENABLED=true
+      - EVENTS_DAYS_RETAIN=180
+      - ORG_GROUPS_ENABLED=true
+    volumes:
+      - ./vw-data:/data
+    networks:
+      - traefik_net
+    labels:
+      - "traefik.http.routers.vaultwarden.entrypoints=https"
+      - "traefik.http.routers.vaultwarden.rule=Host(`bitwarden.getftp.ch`)"
+      - "traefik.http.routers.vaultwarden.tls.certresolver=le"
+      - "traefik.http.routers.vaultwarden.tls=true"
+      - "traefik.http.routers.vaultwarden.tls.options=default"
+      - "traefik.http.routers.vaultwarden.middlewares=vaultwarden-secHeader"
+      - "traefik.http.services.vaultwarden.loadbalancer.server.port=80"
+      - "traefik.http.services.vaultwarden.loadbalancer.server.scheme=http"
+      - "traefik.docker.network=traefik_routing"
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.vaultwarden-secHeader.headers.framedeny=true"
+      - "traefik.http.middlewares.vaultwarden-secHeader.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.vaultwarden-secHeader.headers.stsPreload=true"
+      - "traefik.http.middlewares.vaultwarden-secHeader.headers.stsSeconds=15552000"
+      - "traefik.http.middlewares.vaultwarden-secHeader.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.vaultwarden-secHeader.headers.sslProxyHeaders.bitwarden.getftp.ch=X-Forwarded-Proto:https"
+      - "traefik.http.middlewares.vaultwarden-secHeader.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.vaultwarden-secHeader.headers.customFrameOptionsValue=SAMEORIGIN"
+
+  reverse-proxy:
+    image: traefik
+    labels:
+      - "traefik.enable=true"
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedByDefault=false"
+      - "--entrypoints.http=true"
+      - "--entrypoints.http.address=:80"
+      - "--entrypoints.http.http.redirections.entrypoint.to=https"
+      - "--entrypoints.http.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.https=true"
+      - "--entrypoints.https.address=:443"
+      - "--certificatesResolvers.letsencrypt.acme.email=abuse@getftp.ch"
+      - "--certificatesResolvers.letsencrypt.acme.storage=acme.json"
+      - "--certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint=http"
+      - "--log=true"
+      - "--log.level=INFO"
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./traefik/acme.json:/acme.json
+      - /var/run/docker.sock:/var/run/docker.sock
+
+networks:
+  front-tier:
+    driver: bridge
